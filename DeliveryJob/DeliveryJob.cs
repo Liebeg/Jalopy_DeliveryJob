@@ -4,6 +4,7 @@ using SoftMasking.Samples;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Management.Instrumentation;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
@@ -23,7 +24,7 @@ namespace DeliveryJob
         public override WhenToInit WhenToInit => WhenToInit.InGame;
         public override List<(string, string, string)> Dependencies => new List<(string, string, string)>()
         {
-
+            ("JaLoader", "Leaxx", "3.5.0")
         };
 
         public override bool UseAssets => true;
@@ -33,10 +34,17 @@ namespace DeliveryJob
         private GameObject wallsPrefab;
 
         public readonly Dictionary<(string, int),  (GameObject, bool)> houses = new Dictionary<(string, int), (GameObject, bool)>();
+        public readonly Dictionary<(string, int), int> howManyBoxesForThisHouse = new Dictionary<(string, int), int>();
 
         [SerializeField] public DeliveryBoxSave saveData = new DeliveryBoxSave();
 
-        public GameObject worldSpaceCanvas;
+        private GameObject spriteTemplate;
+
+        private AudioClip payedAudio;
+        private AudioSource payedAudioSource;
+
+        private Sprite dropOffSprite;
+        private Sprite loadingSprite;
 
         public override void EventsDeclaration()
         {
@@ -65,6 +73,13 @@ namespace DeliveryJob
                 houses.Add(("Dubrovnik", i), (null, false));
                 houses.Add(("M. Tarnovo", i), (null, false));
                 houses.Add(("Istanbul", i), (null, false));
+
+                howManyBoxesForThisHouse.Add(("Dresden", i), 0);
+                howManyBoxesForThisHouse.Add(("Sturovo", i), 0);
+                howManyBoxesForThisHouse.Add(("Letenye", i), 0);
+                howManyBoxesForThisHouse.Add(("Dubrovnik", i), 0);
+                howManyBoxesForThisHouse.Add(("M. Tarnovo", i), 0);
+                howManyBoxesForThisHouse.Add(("Istanbul", i), 0);
             }
         }
 
@@ -77,9 +92,64 @@ namespace DeliveryJob
         {
             SetCorrectStatus();
 
+            if (payedAudio == null)
+                payedAudio = FindObjectOfType<ShopC>().payedAudio;
+       
+            foreach (LaikaBuildingC dealership in FindObjectsOfType<LaikaBuildingC>())
+            {
+                if(alreadyChanged.Contains(dealership)) continue;
+
+                string city = GetCityFromCountryCode(dealership.transform.root.GetComponent<Hub_CitySpawnC>().countryHUBCode - 1);
+
+                var palletClone = Instantiate(dealership.transform.Find("Pallet_002"), dealership.transform, true);
+                palletClone.transform.localPosition = new Vector3(11, 0, 3.9f);
+                palletClone.transform.localEulerAngles = new Vector3(270, 55, 0);
+
+                var bollardClone = Instantiate(dealership.transform.Find("Bollard_001"), dealership.transform, true);
+                bollardClone.transform.localPosition = new Vector3(9.8f, 0.0272f, 3.8f);
+                bollardClone.transform.localEulerAngles = new Vector3(0, 55, 0);
+
+                var signCylindersClone = Instantiate(dealership.transform.Find("Cylinder_421"), dealership.transform, true);
+                signCylindersClone.transform.localPosition = new Vector3(11, 0.0272f, 4);
+                signCylindersClone.transform.localEulerAngles = new Vector3(0, 138, 0);
+
+                var signClone = Instantiate(dealership.transform.Find("Cube_1192"), dealership.transform, true);
+                signClone.transform.localPosition = new Vector3(11, 0, 4);
+                signClone.transform.localEulerAngles = new Vector3(270, 138, 0);
+
+                if(spriteTemplate == null)
+                {
+                    foreach (var spriteRenderer in dealership.GetComponentsInChildren<SpriteRenderer>())
+                    {
+                        if (spriteRenderer.sprite.name == "LaikaSign")
+                        {
+                            spriteTemplate = Instantiate(spriteRenderer.gameObject, null);
+                            spriteTemplate.SetActive(false);
+                        }
+                    }
+                }
+
+                var dropOffSprite = Instantiate(spriteTemplate, signClone.transform, false);
+                dropOffSprite.GetComponent<SpriteRenderer>().sprite = this.dropOffSprite;
+                dropOffSprite.transform.localPosition = new Vector3(1.22f, -0.06f, 1.9f);
+                dropOffSprite.transform.localEulerAngles = new Vector3(90, 0, 0);
+                dropOffSprite.transform.localScale = new Vector3(-0.5f, 0.5f, 0.5f);
+                dropOffSprite.SetActive(true);
+
+                bollardClone.SetParent(palletClone, true);
+
+                CreateDropoffZone(Vector3.zero, city, 28, palletClone.gameObject);
+
+                if (houses[(city, 28)].Item1 != null)
+                    Destroy(houses[(city, 28)].Item1);
+
+                houses[(city, 28)] = (palletClone.gameObject, houses[(city, 28)].Item2);
+                alreadyChanged.Add(dealership);
+            }
+
             foreach (StoreC store in FindObjectsOfType<StoreC>())
             {
-                if(alreadyChanged.Contains(store)) continue;
+                if (alreadyChanged.Contains(store)) continue;
 
                 if (store.name.Contains("PetrolStation"))
                     continue;
@@ -96,9 +166,9 @@ namespace DeliveryJob
                 walls2.SetActive(true);
 
                 int n = 0;
-                foreach(Transform door in store.transform)
+                foreach (Transform door in store.transform)
                 {
-                    if(door.name == "DoorPlain_01")
+                    if (door.name == "DoorPlain_01")
                     {
                         if (n == 0 || n == 2)
                         {
@@ -116,18 +186,39 @@ namespace DeliveryJob
 
                             for (int i = 0; i < r; i++)
                                 CreateDeliveryBox(door.transform);
+
+                            var loadingSprite = Instantiate(spriteTemplate, door.transform, false);
+                            loadingSprite.GetComponent<SpriteRenderer>().sprite = this.loadingSprite;
+                            loadingSprite.transform.localPosition = new Vector3(2, 0.7f, 0.32f);
+                            loadingSprite.transform.localEulerAngles = new Vector3(0, 180, 0);
+                            loadingSprite.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f);
+
+                            loadingSprite.transform.SetParent(null, true);
+                            loadingSprite.SetActive(true);
                         }
 
                         if (n == 2)
                         {
-                            Vector3 position = door.transform.position + new Vector3(-1.5f, 0f, 10);
+                            Vector3 position = door.transform.position;
+                            position += transform.forward * 5f;
+                            position += transform.right * -2f;
                             position.y = 0.1f;
+
                             string city = GetCityFromCountryCode(store.transform.root.GetComponent<Hub_CitySpawnC>().countryHUBCode - 1);
 
-                            if(houses[(city, 21)].Item1 != null)
+                            if (houses[(city, 21)].Item1 != null)
                                 Destroy(houses[(city, 21)].Item1);
 
-                            houses[(city, 21)] =  (CreateDropoffZone(position, city, 21), houses[(city, 21)].Item2);
+                            houses[(city, 21)] = (CreateDropoffZone(position, city, 21), houses[(city, 21)].Item2);
+
+                            var dropOffSprite = Instantiate(spriteTemplate, door.transform, false);
+                            dropOffSprite.GetComponent<SpriteRenderer>().sprite = this.dropOffSprite;
+                            dropOffSprite.transform.localPosition = new Vector3(-0.6f, 0.9f, 0.32f);
+                            dropOffSprite.transform.localEulerAngles = new Vector3(0, 180, 0);
+                            dropOffSprite.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f);
+
+                            dropOffSprite.transform.SetParent(null, true);
+                            dropOffSprite.SetActive(true);
                         }
                         n++;
                     }
@@ -136,32 +227,7 @@ namespace DeliveryJob
                 alreadyChanged.Add(store);
             }
 
-            foreach (LaikaBuildingC dealership in FindObjectsOfType<LaikaBuildingC>())
-            {
-                if(alreadyChanged.Contains(dealership)) continue;
-
-                string city = GetCityFromCountryCode(dealership.transform.root.GetComponent<Hub_CitySpawnC>().countryHUBCode - 1);
-
-                var palletClone = Instantiate(dealership.transform.Find("Pallet_002"), dealership.transform, true);
-                palletClone.transform.localPosition = new Vector3(11, 0, 3.9f);
-                palletClone.transform.localEulerAngles = new Vector3(270, 55, 0);
-
-                var bollardClone = Instantiate(dealership.transform.Find("Bollard_001"), dealership.transform, true);
-                bollardClone.transform.localPosition = new Vector3(9.8f, 0.0272f, 3.8f);
-                bollardClone.transform.localEulerAngles = new Vector3(0, 55, 0);
-
-                bollardClone.SetParent(palletClone, true);
-
-                CreateDropoffZone(Vector3.zero, city, 28, palletClone.gameObject);
-
-                if (houses[(city, 28)].Item1 != null)
-                    Destroy(houses[(city, 28)].Item1);
-
-                houses[(city, 28)] = (palletClone.gameObject, houses[(city, 28)].Item2);
-                alreadyChanged.Add(dealership);
-            }
-
-            foreach(MotelLogicC motel in FindObjectsOfType<MotelLogicC>())
+            foreach (MotelLogicC motel in FindObjectsOfType<MotelLogicC>())
             {
                 if(alreadyChanged.Contains(motel)) continue;
 
@@ -172,8 +238,30 @@ namespace DeliveryJob
                     if (houses[(city, i + 22)].Item1 != null)
                         Destroy(houses[(city, i + 22)].Item1);
 
-                    houses[(city, i + 22)] = (CreateDropoffZone(motel.roomDoors[i].transform.parent.parent.Find("CashLoc").position + new Vector3(2, 0, 0), city, i + 21 + 1), houses[(city, i + 22)].Item2);
+                    var dropOffSprite = Instantiate(spriteTemplate, motel.roomDoors[i].transform, false);
+                    dropOffSprite.GetComponent<SpriteRenderer>().sprite = this.dropOffSprite;
+                    dropOffSprite.transform.localPosition = new Vector3(0, 0.5f, 0.45f);
+                    dropOffSprite.transform.localEulerAngles = new Vector3(0, 90, 0);
+                    dropOffSprite.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f);
+
+                    dropOffSprite.transform.SetParent(dropOffSprite.transform.parent.parent.parent, true);
+                    dropOffSprite.SetActive(houses[(city, i + 22)].Item2);
+
+                    houses[(city, i + 22)] = (CreateDropoffZone(motel.roomDoors[i].transform.parent.parent.Find("CashLoc").position + new Vector3(0, 0.05f, 0) + (motel.roomDoors[i].transform.parent.parent.Find("CashLoc").right * -0.5f), city, i + 21 + 1, sprite: dropOffSprite), houses[(city, i + 22)].Item2);
                 }
+
+                var receptionDropOffSprite = Instantiate(spriteTemplate, motel.transform.parent.Find("blackboard_shop_01"), false);
+                receptionDropOffSprite.GetComponent<SpriteRenderer>().sprite = dropOffSprite;
+                receptionDropOffSprite.transform.localPosition = new Vector3(0, 0, 0) + (receptionDropOffSprite.transform.parent.up);
+                receptionDropOffSprite.transform.localEulerAngles = new Vector3(0, 0, 0);
+                receptionDropOffSprite.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f); 
+                receptionDropOffSprite.transform.SetParent(null, true);
+                receptionDropOffSprite.SetActive(houses[(city, 27)].Item2);
+
+                receptionDropOffSprite.name = "receptionDropOffSprite";
+
+                Vector3 position = motel.transform.parent.Find("blackboard_shop_01").position;
+                CreateDropoffZone(position + (motel.transform.parent.Find("blackboard_shop_01").up * -3.3f), city, 27, sprite: receptionDropOffSprite);
 
                 alreadyChanged.Add(motel);
             }
@@ -238,20 +326,13 @@ namespace DeliveryJob
                 if (house.Item2 == false)
                 {
                     if (house.Item1 != null)
-                    {
                         house.Item1?.SetActive(false);
-                        Destroy(house.Item1.GetComponent<DropoffZoneData>().floatingTextObject);
-                    }
+
                     continue;
                 }
 
                 if(house.Item1 != null)
-                {
                     house.Item1.SetActive(true);
-                    var obj = CreateFloatingText(house.Item1.transform.position + Vector3.up * 2, house.Item1.GetComponent<DropoffZoneData>().houseNumber.ToString());
-                    house.Item1.GetComponent<DropoffZoneData>().floatingTextObject = obj;
-                }
-
             }
         }
 
@@ -289,7 +370,7 @@ namespace DeliveryJob
             return toReturn;
         }
 
-        private GameObject CreateDropoffZone(Vector3 position, string city, int houseNumber, GameObject objectToChange = null, bool resetY = false)
+        private GameObject CreateDropoffZone(Vector3 position, string city, int houseNumber, GameObject objectToChange = null, bool resetY = false, GameObject sprite = null)
         {
             if(objectToChange != null)
             {
@@ -313,30 +394,19 @@ namespace DeliveryJob
                 color = new Color(0, 1, 0, 0.7f)
             };
             e.GetComponent<MeshRenderer>().material = ModHelper.Instance.GetGlowMaterial(material);
+            e.GetComponent<MeshRenderer>().enabled = false;
             e.AddComponent<BoxCollider>();
             var data = e.AddComponent<DropoffZoneData>();
 
             data.city = city;
             data.houseNumber = houseNumber;
 
+            if(sprite != null)
+                data.sprite = sprite;
+
             e.SetActive(houses[(city, houseNumber)].Item2);
 
             return e;
-        }
-
-        private GameObject CreateFloatingText(Vector3 position, string text)
-        {
-            var obj = new GameObject("FloatingText");
-            obj.AddComponent<RectTransform>();
-            obj.transform.position = position;
-            obj.AddComponent<Text>().text = text;
-            obj.GetComponent<Text>().fontSize = 50;
-            obj.transform.localScale = new Vector3(0.01f, 0.01f, 0.01f);
-            
-            obj.GetComponent<RectTransform>().sizeDelta = new Vector2(200, 150);
-
-            obj.AddComponent<FloatingNumber>();
-            return obj;
         }
 
         private void AddBoxesToCustomObjectsManager()
@@ -350,8 +420,10 @@ namespace DeliveryJob
             foreach(GameObject box in boxes)
             {
                 box.AddComponent<DeliveryBoxData>();
+                Destroy(box.GetComponent<BoxContentsC>());
+                Destroy(box.GetComponent<Animator>());
                 box.transform.Find("Opener").gameObject.SetActive(false);
-                box.GetComponent<ObjectPickupC>().objectID = -1;
+                box.GetComponent<ObjectPickupC>().objectID = 0;
                 var customObjectInfo = box.AddComponent<CustomObjectInfo>();
                 customObjectInfo.SpawnNoRegister = true;
                 customObjectInfo.objName = "Delivery Box";
@@ -397,7 +469,11 @@ namespace DeliveryJob
 
             box.transform.position = transform.position;
             box.transform.SetParent(transform, true);
-            box.transform.position += new Vector3(-1.5f, 1f, 10);
+            int randomHeight = UnityEngine.Random.Range(0, 4);
+            box.transform.position += new Vector3(0, randomHeight, 0);
+            box.transform.position += transform.forward * -3f;
+            box.transform.position += transform.right * 1.5f;
+
             box.transform.SetParent(null, true);
             //box.transform.Find("Opener").gameObject.SetActive(false);
             var data = box.GetComponent<DeliveryBoxData>();
@@ -427,7 +503,7 @@ namespace DeliveryJob
 
             foreach(MotelLogicC motel in FindObjectsOfType<MotelLogicC>())
             {
-                if (motel.roomNumber == i - 21)
+                if (motel.roomNumber == i - 22)
                 {
                     if (i == 26)
                         i--;
@@ -464,6 +540,8 @@ namespace DeliveryJob
             houses[(city, i)] = (houses[(city, i)].Item1, true);
             houses[(city, i)].Item1?.SetActive(true);
 
+            howManyBoxesForThisHouse[(city, i)]++;
+
             SetCorrectStatus();
 
             data.pay = payCheck;
@@ -479,16 +557,44 @@ namespace DeliveryJob
         {
             string toReturn = "";
 
-            if (i == 21)
-                toReturn = "Shop";
-            else if (i >= 22 && i <= 26)
-                toReturn = $"Motel Room {i - 21}";
-            else if (i == 27)
-                toReturn = "Motel Reception";
-            else if (i == 28)
-                toReturn = "Dealership";
-            else
-                toReturn = $"House {i}";
+            switch (i)
+            {
+                case 21:
+                    toReturn = "Shop";
+                    break;
+
+                case 22:
+                    toReturn = "Motel Room 1A";
+                    break;
+
+                case 23:
+                    toReturn = "Motel Room 1B";
+                    break;
+
+                case 24:
+                    toReturn = "Motel Room 2A";
+                    break;
+
+                case 25:
+                    toReturn = "Motel Room 2B";
+                    break;
+
+                case 26:
+                    toReturn = "Motel Room 2C";
+                    break;
+
+                case 27:
+                    toReturn = "Motel Reception";
+                    break;
+
+                case 28:
+                    toReturn = "Dealership";
+                    break;
+
+                default:
+                    toReturn = $"House {i}";
+                    break;
+            }
 
             return toReturn;
         }
@@ -526,6 +632,8 @@ namespace DeliveryJob
         public override void OnEnable()
         {
             base.OnEnable();
+
+            AddBoxesToCustomObjectsManager();
         }
 
         public override void Awake()
@@ -541,24 +649,17 @@ namespace DeliveryJob
             wallsPrefab = Instantiate(wallsPrefab);
             wallsPrefab.SetActive(false);
 
-            CreateCanvas();
+            dropOffSprite = LoadAsset<Sprite>("walls", "dropoff", "", ".png");
+            loadingSprite = LoadAsset<Sprite>("walls", "load", "", ".png");
 
-            AddBoxesToCustomObjectsManager();
+            payedAudioSource = ModHelper.Instance.player.AddComponent<AudioSource>();
 
             StartChangesDelay("", "", 0);
         }
 
-        private void CreateCanvas()
+        public void PlayPayedSound()
         {
-            worldSpaceCanvas = new GameObject("WorldSpaceCanvas");
-            Canvas canvas = worldSpaceCanvas.AddComponent<Canvas>();
-            RectTransform rectTransform = worldSpaceCanvas.GetComponent<RectTransform>();
-            rectTransform.sizeDelta = new Vector2(Screen.width, Screen.height);
-            rectTransform.position = new Vector3(Screen.width / 2, Screen.height / 2, 0);
-            canvas.renderMode = RenderMode.WorldSpace;
-            canvas.worldCamera = Camera.main;
-            worldSpaceCanvas.AddComponent<CanvasScaler>();
-            worldSpaceCanvas.AddComponent<GraphicRaycaster>();
+           payedAudioSource.PlayOneShot(payedAudio);
         }
 
         public override void Update()
@@ -596,7 +697,6 @@ namespace DeliveryJob
                     if (data.Key != obj.inventoryPlacedAt.localPosition)
                         continue;
 
-
                     var boxData = obj.transform.gameObject.GetComponent<DeliveryBoxData>();
                     var tuple = DeliveryBoxSave.StringToTuple(data.Value);
 
@@ -607,6 +707,8 @@ namespace DeliveryJob
                     boxData.pay = tuple.Item1;
                     boxData.houseNumber = tuple.Item2;
                     boxData.city = tuple.Item3;
+
+                    howManyBoxesForThisHouse[(tuple.Item3, tuple.Item2)]++;
 
                     //duplicate houses dictionary
                     var copy = new Dictionary<(string, int), (GameObject, bool)>(houses);
@@ -634,25 +736,6 @@ namespace DeliveryJob
 
             File.WriteAllText(Path.Combine(Application.persistentDataPath, @"DeliveryJob\DeliveryBoxes.json"), JsonUtility.ToJson(saveData));
         }
-    }
-}
-
-public class FloatingNumber : MonoBehaviour
-{
-    private Transform mainCam;
-    private Transform worldSpaceCanvas;
-
-    private void Start()
-    {
-        mainCam = Camera.main.transform;
-        worldSpaceCanvas = FindObjectOfType<DeliveryJob.DeliveryJob>().worldSpaceCanvas.transform;
-
-        transform.SetParent(worldSpaceCanvas, true);
-    }
-
-    private void Update()
-    {
-        transform.rotation = Quaternion.LookRotation(transform.position - mainCam.position);
     }
 }
 
@@ -705,6 +788,14 @@ public class DeliveryBoxData : MonoBehaviour
 
         deliveryJob?.saveData.Add(objPickupC.inventoryPlacedAt.localPosition, DeliveryBoxSave.TupleToString((pay, houseNumber, city)));
     }
+
+    private void OnCollisionEnter(Collision collision)
+    {
+        if (collision.gameObject.GetComponent<DropoffZoneData>())
+        {
+            collision.gameObject.GetComponent<DropoffZoneData>().CompleteDelivery(this);
+        }
+    }
 }
 
 public class DropoffZoneData : MonoBehaviour
@@ -713,27 +804,51 @@ public class DropoffZoneData : MonoBehaviour
     public string city;
     public List<DeliveryBoxData> alreadyDeliveredBoxes = new List<DeliveryBoxData>();
 
-    public GameObject floatingTextObject;
+    public GameObject sprite;
 
-    private void OnCollisionEnter(Collision collision)
+    private DeliveryJob.DeliveryJob deliveryJob;
+
+    public void OnEnable()
     {
-        if (collision.gameObject.GetComponent<DeliveryBoxData>())
+        if(sprite != null)
+            sprite.SetActive(true);
+
+        deliveryJob = FindObjectOfType<DeliveryJob.DeliveryJob>();
+    }
+
+    public void OnDisable()
+    {
+        if(sprite != null)
+            sprite.SetActive(false);
+    }
+
+    public void CompleteDelivery(DeliveryBoxData box)
+    {
+        if (box.houseNumber != houseNumber || box.city != city)
+            return;
+
+        if (alreadyDeliveredBoxes.Contains(box))
+            return;
+
+        box.GetComponent<ObjectPickupC>().glowMaterial = box.GetComponent<ObjectPickupC>().startMaterial;
+        FindObjectOfType<WalletC>().TotalWealth += box.pay;
+        FindObjectOfType<WalletC>().UpdateWealth();
+        Destroy(box);
+        Destroy(box.GetComponent<ObjectPickupC>());
+
+        deliveryJob.PlayPayedSound();
+
+        deliveryJob.howManyBoxesForThisHouse[(city, houseNumber)]--;
+
+        alreadyDeliveredBoxes.Add(box);
+
+        if(deliveryJob.howManyBoxesForThisHouse[(city, houseNumber)] == 0)
         {
-            if(collision.gameObject.GetComponent<DeliveryBoxData>().houseNumber != houseNumber || collision.gameObject.GetComponent<DeliveryBoxData>().city != city)
-                return;
-
-            if(alreadyDeliveredBoxes.Contains(collision.gameObject.GetComponent<DeliveryBoxData>()))
-                return;
-
-            collision.gameObject.GetComponent<ObjectPickupC>().glowMaterial = collision.gameObject.GetComponent<ObjectPickupC>().startMaterial;
-            FindObjectOfType<WalletC>().TotalWealth += collision.gameObject.GetComponent<DeliveryBoxData>().pay;
-            Destroy(collision.gameObject.GetComponent<DeliveryBoxData>());
-            FindObjectOfType<WalletC>().UpdateWealth();
-            Destroy(collision.gameObject.GetComponent<ObjectPickupC>());
-
-            FindObjectOfType<DeliveryJob.DeliveryJob>().houses[(city, houseNumber)] = (FindObjectOfType<DeliveryJob.DeliveryJob>().houses[(city, houseNumber)].Item1, false);
-
-            alreadyDeliveredBoxes.Add(collision.gameObject.GetComponent<DeliveryBoxData>());
+            deliveryJob.houses[(city, houseNumber)] = (deliveryJob.houses[(city, houseNumber)].Item1, false);
+            
+            if(houseNumber != 21 && houseNumber != 28)
+                gameObject.SetActive(false);
         }
     }
+
 }
