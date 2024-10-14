@@ -19,7 +19,7 @@ namespace DeliveryJob
         public override string ModName => "Delivery Job";
         public override string ModAuthor => "Leaxx";
         public override string ModDescription => "Adds a fun side activity involving picking up & dropping off boxes to various houses in other cities!";
-        public override string ModVersion => "1.0";
+        public override string ModVersion => "1.1";
         public override string GitHubLink => "https://github.com/Jalopy-Mods/DeliveryJob";
         public override WhenToInit WhenToInit => WhenToInit.InGame;
         public override List<(string, string, string)> Dependencies => new List<(string, string, string)>()
@@ -85,6 +85,9 @@ namespace DeliveryJob
 
         private void StartChangesDelay(string startLocation, string endLocation, int distance)
         {
+            if(endLocation == "Berlin")
+                return;
+
             Invoke("DoChanges", 5f);
         }
 
