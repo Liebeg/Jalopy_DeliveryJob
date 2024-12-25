@@ -19,7 +19,7 @@ namespace DeliveryJob
         public override string ModName => "Delivery Job";
         public override string ModAuthor => "Leaxx";
         public override string ModDescription => "Adds a fun side activity involving picking up & dropping off boxes to various houses in other cities!";
-        public override string ModVersion => "1.1";
+        public override string ModVersion => "1.2";
         public override string GitHubLink => "https://github.com/Jalopy-Mods/DeliveryJob";
         public override WhenToInit WhenToInit => WhenToInit.InGame;
         public override List<(string, string, string)> Dependencies => new List<(string, string, string)>()
@@ -85,6 +85,9 @@ namespace DeliveryJob
 
         private void StartChangesDelay(string startLocation, string endLocation, int distance)
         {
+            if (!gameObject.activeSelf)
+                return;
+
             if(endLocation == "Berlin")
                 return;
 
@@ -677,7 +680,10 @@ namespace DeliveryJob
 
         public void LoadData()
         {
-            if(SceneManager.GetActiveScene().buildIndex != 3)
+            if (!gameObject.activeSelf)
+                return;
+
+            if (SceneManager.GetActiveScene().buildIndex != 3)
                 return;
 
             saveData.Clear();
@@ -731,7 +737,10 @@ namespace DeliveryJob
 
         public void SaveAll()
         {
-            if(saveData.Count == 0)
+            if (!gameObject.activeSelf)
+                return;
+
+            if (saveData.Count == 0)
                 return;
 
             if (!Directory.Exists(Path.Combine(Application.persistentDataPath, @"DeliveryJob")))
@@ -779,17 +788,22 @@ public class DeliveryBoxData : MonoBehaviour
 
     private void Save()
     {
-        var objPickupC = GetComponent<ObjectPickupC>();
-
-        if(objPickupC == null)
+        if(gameObject?.GetComponent<ObjectPickupC>() == null)
             return;
 
-        if(objPickupC.inventoryPlacedAt == null)
+        var objPickupC = gameObject.GetComponent<ObjectPickupC>();
+
+        if (objPickupC.inventoryPlacedAt == null)
             return;
 
         var deliveryJob = FindObjectOfType<DeliveryJob.DeliveryJob>();
 
         deliveryJob?.saveData.Add(objPickupC.inventoryPlacedAt.localPosition, DeliveryBoxSave.TupleToString((pay, houseNumber, city)));
+    }
+
+    public void UnSubscribeEvent()
+    {
+        EventsManager.Instance.OnCustomObjectsSaved -= Save;
     }
 
     private void OnCollisionEnter(Collision collision)
@@ -833,6 +847,7 @@ public class DropoffZoneData : MonoBehaviour
         if (alreadyDeliveredBoxes.Contains(box))
             return;
 
+        box.UnSubscribeEvent();
         box.GetComponent<ObjectPickupC>().glowMaterial = box.GetComponent<ObjectPickupC>().startMaterial;
         FindObjectOfType<WalletC>().TotalWealth += box.pay;
         FindObjectOfType<WalletC>().UpdateWealth();
