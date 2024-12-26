@@ -5,7 +5,9 @@
 
 This mod adds a side job that involves delivering packages between cities. The packages are picked up from the shop, and then delivered to the specified location. The location may be behind or ahead of you.
 
-The possible destinations in each city are the motel reception, every motel room except the one assigned for the player, the dealership and the store. Houses are coming soon.
+The possible destinations in each city are the motel reception, every motel room except the one assigned for the player, the dealership and the store. Houses are planned.
+
+Boxes can only be picked up and delivered **BEFORE** sleeping in motels.
 
 ### How to install
 1. Make sure you have [JaLoader](https://github.com/theLeaxx/JaLoader) 3.5.0+ installed
