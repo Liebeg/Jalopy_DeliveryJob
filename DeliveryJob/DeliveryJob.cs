@@ -19,7 +19,7 @@ namespace DeliveryJob
         public override string ModName => "Delivery Job";
         public override string ModAuthor => "Leaxx";
         public override string ModDescription => "Adds a fun side activity involving picking up & dropping off boxes to various houses in other cities!";
-        public override string ModVersion => "1.2";
+        public override string ModVersion => "1.3";
         public override string GitHubLink => "https://github.com/Jalopy-Mods/DeliveryJob";
         public override WhenToInit WhenToInit => WhenToInit.InGame;
         public override List<(string, string, string)> Dependencies => new List<(string, string, string)>()
@@ -498,7 +498,9 @@ namespace DeliveryJob
             string city = cities[UnityEngine.Random.Range(0, 6)];
             int distance = Math.Abs(Array.IndexOf(cities, GetCurrentCity()) - Array.IndexOf(cities, city));
 
+            float diffslider = GetSliderValue("diffID");
             int payCheck = basePay + distance * distanceModifier;
+            payCheck = payCheck/ Convert.ToInt32(diffslider);
             if (distance == 0)
                 payCheck /= 2;
 
@@ -628,6 +630,8 @@ namespace DeliveryJob
             InstantiateSettings();
 
             AddToggle("DeliverToHouses", "EXPERIMENTAL - Deliver to random houses", false);
+            AddSlider("DiffID", "Difficulty", 1, 3, 1, true);
+            AddDisclaimer("(This is basically a earning modifer)");
         }
 
         public override void CustomObjectsRegistration()
